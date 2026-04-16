@@ -87,7 +87,7 @@ SYSTEM_COMMANDS = {
 # Load API key from .env file (with error handling)
 try:
     load_dotenv()
-    DEFAULT_API_KEY = os.getenv("GROQ_API_KEY", "")
+    DEFAULT_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 except Exception:
     DEFAULT_API_KEY = ""
 
@@ -154,6 +154,66 @@ Keep responses concise and actionable. Use markdown sparingly."""
         """Detect automation intents from AI response."""
         text_lower = text.lower()
         intent = {"type": None, "action": None, "params": {}}
+        
+        # Check for Clean Mind Filter first
+        if not AutomationTools.is_safe_query(text):
+            return {
+                "type": "blocked",
+                "action": "block",
+                "params": {
+                    "response": "I don't do that kind of content. Let's get back to work."
+                }
+            }
+        
+        # Check for search intent ("search for...", "look up...", "what is...")
+        if any(trigger in text_lower for trigger in ["search for", "look up", "what is", "who is", "where is", "how to"]):
+            # Extract search query
+            for trigger in ["search for", "look up", "what is", "who is", "where is", "how to"]:
+                if trigger in text_lower:
+                    query = text_lower.split(trigger)[1].strip()
+                    break
+            else:
+                query = text_lower
+            
+            # Check for lyrics queries to prioritize high-authority sites
+            if "lyrics" in text_lower:
+                priority_site = "genius" if "genius" in text_lower else "azlyrics"
+                intent = {
+                    "type": "web_search",
+                    "action": "search_google",
+                    "params": {
+                        "query": query,
+                        "safe_search": True,
+                        "priority_site": priority_site
+                    }
+                }
+                return intent
+            
+            intent = {
+                "type": "web_search",
+                "action": "search_google",
+                "params": {
+                    "query": query,
+                    "safe_search": True
+                }
+            }
+            return intent
+        
+        # Check for Dojo Timer intent
+        if "dojo timer" in text_lower or "timer" in text_lower:
+            # Extract minutes
+            parts = text_lower.split()
+            for part in parts:
+                if part.isdigit():
+                    minutes = int(part)
+                    intent = {
+                        "type": "dojo_timer",
+                        "action": "start_timer",
+                        "params": {
+                            "minutes": minutes
+                        }
+                    }
+                    return intent
         
         # Check for combined commands (automation chain)
         if " and " in text_lower:
@@ -252,7 +312,135 @@ class AutomationTools:
         "netflix": "https://netflix.com",
         "chatgpt": "https://chat.openai.com",
         "openai": "https://openai.com",
+        "genius": "https://genius.com",
+        "azlyrics": "https://azlyrics.com",
     }
+    
+    # Forbidden keywords for Clean Mind Filter
+    FORBIDDEN_KEYWORDS = [
+        "porn", "xxx", "adult", "nude", "sex", "nsfw", 
+        "erotic", "hentai", "xxx", "pornography"
+    ]
+    
+    @staticmethod
+    def is_safe_query(query: str) -> bool:
+        """Check if query contains forbidden keywords."""
+        query_lower = query.lower()
+        for keyword in AutomationTools.FORBIDDEN_KEYWORDS:
+            if keyword in query_lower:
+                return False
+        return True
+    
+    # App cache file
+    APP_CACHE_FILE = "paths.json"
+    
+    @staticmethod
+    def _load_app_cache():
+        """Load app paths from cache file."""
+        try:
+            if os.path.exists(AutomationTools.APP_CACHE_FILE):
+                with open(AutomationTools.APP_CACHE_FILE, 'r') as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"Failed to load app cache: {e}")
+        return {}
+    
+    @staticmethod
+    def _save_app_cache(cache):
+        """Save app paths to cache file."""
+        try:
+            with open(AutomationTools.APP_CACHE_FILE, 'w') as f:
+                json.dump(cache, f, indent=2)
+        except Exception as e:
+            print(f"Failed to save app cache: {e}")
+    
+    @staticmethod
+    def find_app_path(app_name: str, callback=None):
+        """Find app path by scanning common directories and using fuzzy matching."""
+        # Load cache
+        cache = AutomationTools._load_app_cache()
+        app_lower = app_name.lower()
+        
+        # Check cache first
+        if app_lower in cache:
+            return cache[app_lower]
+        
+        # Common install directories
+        search_dirs = [
+            r"C:\Program Files",
+            r"C:\Program Files (x86)",
+            os.path.join(os.environ.get('LOCALAPPDATA', ''), ''),
+        ]
+        
+        # Scan directories for .exe files
+        found_apps = {}
+        for search_dir in search_dirs:
+            if not os.path.exists(search_dir):
+                continue
+            
+            try:
+                for root, dirs, files in os.walk(search_dir):
+                    for file in files:
+                        if file.lower().endswith('.exe'):
+                            # Remove .exe extension for matching
+                            name_key = file[:-4].lower()
+                            found_apps[name_key] = os.path.join(root, file)
+            except Exception as e:
+                print(f"Error scanning {search_dir}: {e}")
+                continue
+        
+        # Registry scanning (optional but pro)
+        try:
+            import winreg
+            uninstall_key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, 
+                                         r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall")
+            for i in range(winreg.QueryInfoKey(uninstall_key)[0]):
+                try:
+                    subkey_name = winreg.EnumKey(uninstall_key, i)
+                    subkey = winreg.OpenKey(uninstall_key, subkey_name)
+                    try:
+                        display_name = winreg.QueryValueEx(subkey, "DisplayName")[0]
+                        install_location = winreg.QueryValueEx(subkey, "InstallLocation")[0]
+                        if install_location:
+                            # Scan install location for .exe
+                            if os.path.exists(install_location):
+                                for root, dirs, files in os.walk(install_location):
+                                    for file in files:
+                                        if file.lower().endswith('.exe'):
+                                            name_key = file[:-4].lower()
+                                            found_apps[name_key] = os.path.join(root, file)
+                                            # Also store by display name
+                                            found_apps[display_name.lower()] = os.path.join(root, file)
+                    except FileNotFoundError:
+                        pass
+                    winreg.CloseKey(subkey)
+                except Exception as e:
+                    pass
+            winreg.CloseKey(uninstall_key)
+        except Exception as e:
+            print(f"Registry scanning failed: {e}")
+        
+        # Fuzzy matching
+        app_names = list(found_apps.keys())
+        matches = difflib.get_close_matches(app_lower, app_names, n=1, cutoff=0.6)
+        
+        if matches:
+            best_match = matches[0]
+            app_path = found_apps[best_match]
+            
+            # Log the find
+            if callback:
+                callback(f"[ACTION] Found {app_name} at: {app_path}")
+            
+            # Cache the result
+            cache[app_lower] = app_path
+            AutomationTools._save_app_cache(cache)
+            
+            return app_path
+        
+        if callback:
+            callback(f"[ERROR] Could not find app: {app_name}")
+        return None
     
     @staticmethod
     def open_website(site: str, callback=None) -> bool:
@@ -309,21 +497,47 @@ class AutomationTools:
             return False
     
     @staticmethod
-    def launch_application(app_name: str, callback=None) -> bool:
-        """Launch a local application using subprocess.Popen with shell=True."""
+    def launch_app(app_name: str, callback=None) -> bool:
+        """Launch an application using dynamic system scanner with os.startfile."""
         try:
-            app_cmd = AutomationTools.APP_MAPPING.get(app_name.lower(), app_name)
+            # Try dynamic app search first
+            app_path = AutomationTools.find_app_path(app_name, callback)
+            if app_path:
+                # Special log for Zalo/Roblox (apps with background processes)
+                if any(special in app_name.lower() for special in ["zalo", "roblox"]):
+                    if callback:
+                        callback(f"[SYSTEM] Handing execution to Windows Shell for: {app_name}")
+                else:
+                    if callback:
+                        callback(f"[ACTION] Launching: {app_path}")
+                
+                # Use os.startfile for Windows (recommended)
+                os.startfile(app_path)
+                return True
             
+            # Fallback to app mapping
+            app_lower = app_name.lower()
+            if app_lower in AutomationTools.APP_MAPPING:
+                exe_path = AutomationTools.APP_MAPPING[app_lower]
+                if callback:
+                    callback(f"[ACTION] Launching: {app_name}")
+                os.startfile(exe_path)
+                return True
+            
+            # Try to launch directly with quote protection
+            if not app_name.endswith('.exe'):
+                app_name += '.exe'
+            
+            # Use os.startfile for direct launch
+            os.startfile(app_name)
             if callback:
                 callback(f"[ACTION] Launching: {app_name}")
-            
-            # Use subprocess.Popen with shell=True for PATH discovery
-            subprocess.Popen(app_cmd, shell=True)
             return True
         except Exception as e:
-            print(f"Failed to launch app: {e}")
+            error_msg = f"Failed to launch {app_name}: {str(e)}"
+            print(error_msg)
             if callback:
-                callback(f"[ERROR] Failed to launch: {app_name}")
+                callback(f"[ERROR] {error_msg}")
             return False
     
     @staticmethod
@@ -361,7 +575,43 @@ class AutomationTools:
         params = intent.get("params", {})
         result = None
         
-        if action_type == "web_open":
+        # Handle blocked intent (Clean Mind Filter)
+        if action_type == "blocked":
+            response = params.get("response", "I don't do that kind of content. Let's get back to work.")
+            if callback:
+                callback(f"[BLOCKED] Safety Filter Triggered")
+            return response
+        
+        # Handle web_search intent with SafeSearch
+        elif action_type == "web_search":
+            query = params.get("query", "")
+            safe_search = params.get("safe_search", True)
+            priority_site = params.get("priority_site")
+            
+            # Build Google search URL with SafeSearch
+            search_url = f"https://www.google.com/search?q={query}"
+            if safe_search:
+                search_url += "&safe=active"
+            
+            # If priority site specified, try to use it
+            if priority_site == "genius" and "genius" in AutomationTools.WEB_MAPPING:
+                search_url = f"{AutomationTools.WEB_MAPPING['genius']}/search?q={query}"
+            elif priority_site == "azlyrics" and "azlyrics" in AutomationTools.WEB_MAPPING:
+                search_url = f"{AutomationTools.WEB_MAPPING['azlyrics']}/search?q={query}"
+            
+            if callback:
+                callback(f"[SYSTEM] Searching: {query}")
+            webbrowser.open(search_url)
+            result = f"🔍 Searching for: {query}"
+        
+        # Handle Dojo Timer intent
+        elif action_type == "dojo_timer":
+            minutes = params.get("minutes", 5)
+            if callback:
+                callback(f"[SYSTEM] Dojo Timer started: {minutes} minutes")
+            result = f"⏱️ Dojo Timer: {minutes} minutes"
+        
+        elif action_type == "web_open":
             site = params.get("site", params.get("url", ""))
             if AutomationTools.open_website(site, callback):
                 result = f"🔗 Opened: {site}"
@@ -893,16 +1143,27 @@ class SentinelBuddyDesktop:
         
         # Create inner frame for bubbles
         self.chat_inner = tk.Frame(self.chat_canvas, bg=BG_CHAT)
-        self.chat_canvas.create_window((0, 0), window=self.chat_inner, anchor="nw")
+        self.chat_canvas.create_window((0, 0), window=self.chat_inner, anchor="nw", width=self.chat_canvas.winfo_width())
         
-        # Configure canvas scroll
-        self.chat_inner.bind("<Configure>", lambda e: self.chat_canvas.configure(scrollregion=self.chat_canvas.bbox("all")))
+        # Configure canvas scroll to match width
+        def update_scroll_region(event=None):
+            self.chat_canvas.configure(scrollregion=self.chat_canvas.bbox("all"))
+            # Update window width to match canvas
+            canvas_width = self.chat_canvas.winfo_width()
+            self.chat_canvas.itemconfigure(1, width=canvas_width)
+        
+        self.chat_inner.bind("<Configure>", update_scroll_region)
         
         # Store bubble references for auto-scroll
         self.bubble_count = 0
         
         # Store thinking animation reference
         self.thinking_bubble = None
+        
+        # Dojo Timer variables
+        self.dojo_timer_active = False
+        self.dojo_timer_label = None
+        self.dojo_timer_seconds = 0
         
         # Welcome message (will be updated after auto-connect)
         self._add_system_bubble(
@@ -986,7 +1247,46 @@ class SentinelBuddyDesktop:
     
     def _add_ai_bubble(self, text: str):
         self.current_messages.append({"type": "ai", "text": text})
-        self._render_bubble_frame(text, "ai")
+        self._type_ai_bubble(text)
+    
+    def _type_ai_bubble(self, text: str):
+        """Type AI response character-by-character with Ghost Pulse effect."""
+        # Create bubble frame
+        bubble_frame = tk.Frame(self.chat_inner, bg=BG_CHAT)
+        bubble_frame.pack(fill="x", padx=10, pady=8)
+        
+        # Use screen width minus sidebar for consistent full-width sizing
+        if self.stored_canvas_width is None:
+            screen_width = self.root.winfo_screenwidth()
+            self.stored_canvas_width = screen_width - SIDEBAR_EXPANDED - 60
+        
+        max_bubble_width = self.stored_canvas_width
+        
+        # AI Bubbles - Left aligned, dark grey with rounded corners
+        inner = tk.Frame(bubble_frame, bg="#2a2a2a", relief="solid", bd=0, 
+                       highlightbackground="#404040", highlightthickness=1)
+        inner.pack(side="left", anchor="w")
+        
+        # Create label for typing effect
+        lbl = tk.Label(inner, text="", bg="#2a2a2a", fg="#FFFFFF", 
+                      font=("Segoe UI", 11), wraplength=max_bubble_width, justify="left", padx=16, pady=12, anchor="w")
+        lbl.pack(anchor="w")
+        
+        # Character-by-character typing
+        self._type_text_character_by_character(lbl, text, 0)
+    
+    def _type_text_character_by_character(self, label, text: str, index: int):
+        """Type text character by character with auto-scroll."""
+        if index < len(text):
+            # Append next character
+            current_text = label.cget("text")
+            label.configure(text=current_text + text[index])
+            
+            # Auto-scroll to bottom
+            self._auto_scroll()
+            
+            # Schedule next character (0.02s for fast but natural feel)
+            self.root.after(20, lambda: self._type_text_character_by_character(label, text, index + 1))
     
     def _add_system_bubble(self, text: str):
         self.current_messages.append({"type": "system", "text": text})
@@ -1017,6 +1317,7 @@ class SentinelBuddyDesktop:
         self.thinking_label.pack(anchor="w")
         
         self.thinking_bubble = bubble_frame
+        self.thinking_dots = 0
         self._animate_thinking_dots()
         self._auto_scroll()
     
@@ -1028,18 +1329,75 @@ class SentinelBuddyDesktop:
             self.thinking_label = None
     
     def _animate_thinking_dots(self):
-        """Animate the thinking dots."""
+        """Animate the thinking dots with pulsing effect."""
         if not self.thinking_bubble:
             return
         
-        dots = ["", ".", "..", "..."]
-        for i, dot in enumerate(dots):
-            if self.thinking_label:
-                self.thinking_label.configure(text=f"Sentinel is thinking{dot}")
-                self.root.after(500, lambda: self._animate_thinking_dots() if i == 0 else None)
-                break
-            else:
-                return
+        dots = "." * (self.thinking_dots % 4)
+        if self.thinking_label:
+            self.thinking_label.configure(text=f"Sentinel is thinking{dots}")
+            self.thinking_dots += 1
+            self.root.after(500, self._animate_thinking_dots)
+    
+    def _start_dojo_timer(self, minutes: int):
+        """Start Dojo Timer countdown in sidebar."""
+        if self.dojo_timer_active:
+            return
+        
+        self.dojo_timer_active = True
+        self.dojo_timer_seconds = minutes * 60
+        
+        # Create timer label in sidebar
+        if self.sidebar_content:
+            timer_frame = tk.Frame(self.sidebar_content, bg=BG_SIDEBAR)
+            timer_frame.pack(fill="x", padx=10, pady=10)
+            
+            tk.Label(timer_frame, text="⏱️ Dojo Timer", bg=BG_SIDEBAR, fg=TEXT_SIDEBAR,
+                    font=("Segoe UI", 10, "bold")).pack(anchor="w")
+            
+            self.dojo_timer_label = tk.Label(timer_frame, text=f"{minutes}:00", bg=BG_SIDEBAR, fg=ACCENT_COLOR,
+                                           font=("Segoe UI", 24, "bold"))
+            self.dojo_timer_label.pack(anchor="w", pady=5)
+            
+            tk.Button(timer_frame, text="Stop", bg=BG_INPUT, fg=TEXT_SIDEBAR,
+                     font=("Segoe UI", 9), command=self._stop_dojo_timer).pack(anchor="w")
+        
+        self._update_dojo_timer()
+    
+    def _update_dojo_timer(self):
+        """Update Dojo Timer countdown."""
+        if not self.dojo_timer_active:
+            return
+        
+        if self.dojo_timer_seconds > 0:
+            minutes = self.dojo_timer_seconds // 60
+            seconds = self.dojo_timer_seconds % 60
+            if self.dojo_timer_label:
+                self.dojo_timer_label.configure(text=f"{minutes}:{seconds:02d}")
+            self.dojo_timer_seconds -= 1
+            self.root.after(1000, self._update_dojo_timer)
+        else:
+            # Timer complete
+            self._dojo_timer_complete()
+    
+    def _dojo_timer_complete(self):
+        """Handle Dojo Timer completion."""
+        self.dojo_timer_active = False
+        if self.dojo_timer_label:
+            self.dojo_timer_label.configure(text="Time's Up!", fg="#FF6B6B")
+        
+        # Bring window to front
+        self.root.deiconify()
+        self.root.state('zoomed')
+        self.root.lift()
+        self.root.focus_force()
+        
+        # Show completion message
+        self._add_system_bubble("⏱️ Lab Closed. Time to Spar!")
+    
+    def _stop_dojo_timer(self):
+        """Stop Dojo Timer."""
+        self.dojo_timer_active = False
     
     def _render_bubble_frame(self, text: str, sender_type: str):
         bubble_frame = tk.Frame(self.chat_inner, bg=BG_CHAT)
@@ -1198,16 +1556,30 @@ class SentinelBuddyDesktop:
             ai_reply = result.get("content", "")
             intent = result.get("intent", {})
             
-            # Hide thinking animation
-            self.root.after(0, self._hide_thinking_animation)
-            
             # Update UI on main thread
             self.root.after(0, self._add_ai_bubble, ai_reply)
             self.root.after(0, self._add_system_log, "[SYSTEM] Response received")
             
-            # Execute intent if detected
+            # Execute intent if detected (keep animation active during scan)
             if intent and intent.get("type"):
-                self.root.after(0, lambda: AutomationTools.execute_intent(intent, self._add_automation_log))
+                # Check if blocked intent
+                if intent.get("type") == "blocked":
+                    response = intent.get("params", {}).get("response", "I don't do that kind of content. Let's get back to work.")
+                    self.root.after(0, self._add_system_bubble, f"⚠️ {response}")
+                    self.root.after(0, self._hide_thinking_animation)
+                # Check if Dojo Timer intent
+                elif intent.get("type") == "dojo_timer":
+                    minutes = intent.get("params", {}).get("minutes", 5)
+                    self.root.after(0, self._start_dojo_timer, minutes)
+                    self.root.after(0, self._hide_thinking_animation)
+                else:
+                    # Keep animation active for app scanning
+                    self.root.after(0, lambda: AutomationTools.execute_intent(intent, self._add_automation_log))
+                    # Hide animation after a delay to allow scanning to complete
+                    self.root.after(2000, self._hide_thinking_animation)
+            else:
+                # Hide animation immediately if no intent
+                self.root.after(0, self._hide_thinking_animation)
             
             # Reset thinking flag
             self.root.after(0, lambda: setattr(self, 'is_thinking', False))

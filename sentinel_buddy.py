@@ -3,7 +3,7 @@
 ║                      SENTINEL BUDDY                          ║
 ║              Windows Desktop AI Assistant Sidebar            ║
 ║                                                              ║
-║  Tech Stack  : Python + customtkinter + OpenAI GPT-4o-mini   ║
+║  Tech Stack  : Python + customtkinter + Groq Llama3-70b-8192  ║
 ║  UI Style    : Narrow 300px sidebar, always-on-top, dark     ║
 ║  Features    : AI Chat, System Executor commands             ║
 ╚══════════════════════════════════════════════════════════════╝
@@ -11,15 +11,15 @@
 HOW TO USE:
 -----------
 1. Install dependencies:
-   pip install customtkinter openai python-dotenv
+   pip install customtkinter groq python-dotenv
 
 2. Add your key to .env in the same folder:
-   OPENAI_API_KEY=sk-...
+   GROQ_API_KEY=gsk_...
 
 3. Run:
    python sentinel_buddy.py
 
-3. Enter your OpenAI API key in the sidebar header.
+3. Enter your Groq API key in the sidebar header.
 
 4. Special Commands (System Executor):
    - "Open Sentinel"  → Opens your SentinelPhish Vercel dashboard
@@ -44,7 +44,6 @@ from dotenv import load_dotenv
 # ── Load .env from the same directory as this script ──
 _ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
 load_dotenv(dotenv_path=_ENV_PATH)
-from openai import OpenAI
 
 # ─────────────────────────────────────────────────────────────
 #  CONFIGURATION — Edit these to customize Sentinel Buddy
@@ -70,8 +69,8 @@ FONT_SIZE_BASE = 12
 FONT_SIZE_SMALL = 10
 FONT_SIZE_TITLE = 14
 
-# ── OpenAI Model ──
-AI_MODEL = "gpt-4o-mini"
+# ── Groq Model ──
+AI_MODEL = "llama-3.1-8b-instant"
 
 # ── AI Personality (System Prompt) ──
 SYSTEM_PROMPT = """You are Sentinel Buddy, a sharp, resourceful AI assistant embedded 
@@ -130,7 +129,7 @@ class SentinelBuddy(ctk.CTk):
         self._setup_window()
 
         # ── State ──
-        self.api_client: OpenAI | None = None
+        self.api_client: object | None = None
         self.chat_history: list[dict] = []  # Maintains conversation context
         self.is_thinking: bool = False
 
@@ -229,7 +228,7 @@ class SentinelBuddy(ctk.CTk):
         # ── API Key section ──
         key_label = ctk.CTkLabel(
             header_frame,
-            text="OpenAI API Key",
+            text="Groq API Key",
             text_color=TEXT_SECONDARY,
             font=(FONT_FAMILY, FONT_SIZE_SMALL),
             anchor="w",
@@ -302,10 +301,7 @@ class SentinelBuddy(ctk.CTk):
         # Welcome message
         self._add_system_message(
             f"👾 Sentinel Buddy online.\n"
-            f"Add your API key above and start chatting.\n\n"
-            f"Quick commands:\n"
-            f"  → 'Open Sentinel'  — Launch dashboard\n"
-            f"  → 'Dojo Mode'      — Open Spotify playlist"
+            f"Add your API key above and start chatting."
         )
 
     # ── INPUT AREA ──────────────────────────────
@@ -442,7 +438,7 @@ class SentinelBuddy(ctk.CTk):
             fg_color=bg,
             corner_radius=10,
             border_width=1,
-            border_color=sender_color + "40",  # 25% opacity border
+            border_color=sender_color,
         )
         bubble.grid(
             row=row_idx,
@@ -515,7 +511,7 @@ class SentinelBuddy(ctk.CTk):
         if not self.api_client:
             self._add_system_message(
                 "⚠ No API key connected.\n"
-                "Enter your OpenAI API key above and click ▶"
+                "Enter your Groq API key above and click ▶"
             )
             return
 
@@ -552,7 +548,7 @@ class SentinelBuddy(ctk.CTk):
 
     def _call_ai(self, user_message: str):
         """
-        Background thread: sends message to OpenAI and streams the reply.
+        Background thread: sends message to Groq and streams the reply.
 
         Maintains conversation history for multi-turn context.
         """
@@ -599,7 +595,7 @@ class SentinelBuddy(ctk.CTk):
     # ──────────────────────────────────────────────
 
     def _connect_api(self):
-        """Validate and store the OpenAI API key."""
+        """Validate and store the Groq API key."""
         key = self.key_entry.get().strip()
         if not key:
             self.connection_indicator.configure(
@@ -608,11 +604,12 @@ class SentinelBuddy(ctk.CTk):
             )
             return
 
-        # Initialize OpenAI client
-        self.api_client = OpenAI(api_key=key)
+        # Initialize Groq client
+        from groq import Groq
+        self.api_client = Groq(api_key=key)
 
         # Save key locally for next session (only if not already in .env)
-        if not os.getenv("OPENAI_API_KEY"):
+        if not os.getenv("GROQ_API_KEY"):
             self._save_key(key)
 
         self.connection_indicator.configure(
@@ -636,11 +633,11 @@ class SentinelBuddy(ctk.CTk):
     def _load_saved_key(self):
         """
         Key resolution priority:
-          1. OPENAI_API_KEY in .env  (highest priority)
+          1. GROQ_API_KEY in .env  (highest priority)
           2. .sentinel_config.json   (manual entry fallback)
         """
         # ── Priority 1: .env variable ──
-        env_key = os.getenv("OPENAI_API_KEY", "").strip()
+        env_key = os.getenv("GROQ_API_KEY", "").strip()
         if env_key:
             self.key_entry.insert(0, env_key)
             self._connect_api()  # Auto-connect silently
