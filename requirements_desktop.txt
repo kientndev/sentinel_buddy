@@ -1,0 +1,6 @@
+groq>=0.4.1
+pyautogui>=0.9.54
+pystray>=0.19.5
+Pillow>=10.0.0
+keyboard>=0.13.5
+python-dotenv>=1.0.0
