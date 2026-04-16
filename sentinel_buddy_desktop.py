@@ -39,6 +39,7 @@ import pystray
 from PIL import Image, ImageDraw
 import keyboard
 from dotenv import load_dotenv
+import difflib
 
 # Configuration - Full-Screen Pro Dashboard
 APP_TITLE = "Sentinel Buddy Pro"
@@ -249,11 +250,13 @@ class AutomationTools:
         "reddit": "https://reddit.com",
         "amazon": "https://amazon.com",
         "netflix": "https://netflix.com",
+        "chatgpt": "https://chat.openai.com",
+        "openai": "https://openai.com",
     }
     
     @staticmethod
     def open_website(site: str, callback=None) -> bool:
-        """Open a website with smart mapping and auto-completion."""
+        """Open a website with smart mapping, fuzzy matching, and auto-completion."""
         try:
             # Sanitize input: remove quotes and spaces
             site = site.strip().strip("'").strip('"')
@@ -263,14 +266,20 @@ class AutomationTools:
             if site_lower in AutomationTools.WEB_MAPPING:
                 url = AutomationTools.WEB_MAPPING[site_lower]
             else:
-                # Smart web logic: assume .com if not mapped
-                if not site.startswith("http"):
-                    if "." not in site:
-                        url = f"https://{site.lower()}.com"
-                    else:
-                        url = f"https://{site}" if not site.startswith("http") else site
+                # Fuzzy matching for typos
+                site_names = list(AutomationTools.WEB_MAPPING.keys())
+                matches = difflib.get_close_matches(site_lower, site_names, n=1, cutoff=0.6)
+                if matches:
+                    url = AutomationTools.WEB_MAPPING[matches[0]]
                 else:
-                    url = site
+                    # Smart web logic: assume .com if not mapped
+                    if not site.startswith("http"):
+                        if "." not in site:
+                            url = f"https://{site.lower()}.com"
+                        else:
+                            url = f"https://{site}" if not site.startswith("http") else site
+                    else:
+                        url = site
             
             # Debug log
             print(f"[DEBUG] Opening URL: {url}")
@@ -410,14 +419,11 @@ class SentinelBuddyDesktop:
         # Setup window (full-screen)
         self._setup_window()
         
-        # Build UI (with sidebar and centered chat)
+        # Build UI
         self._build_ui()
         
-        # Setup system tray
-        self._setup_system_tray()
-        
-        # Setup hotkey
-        self._setup_hotkey()
+        # Setup global hotkey (Ctrl + Space)
+        self._setup_global_hotkey()
         
         # Auto-connect with default API key
         self._auto_connect_api()
@@ -427,6 +433,25 @@ class SentinelBuddyDesktop:
         self.root.title(APP_TITLE)
         self.root.state('zoomed')  # Full-screen mode
         self.root.configure(bg=BG_PRIMARY)
+    
+    def _setup_global_hotkey(self):
+        """Setup global hotkey (Ctrl + Space) for toggle minimize/restore."""
+        try:
+            keyboard.add_hotkey('ctrl+space', self._toggle_window_visibility)
+        except Exception as e:
+            self._add_system_log(f"Failed to setup global hotkey: {e}")
+    
+    def _toggle_window_visibility(self):
+        """Toggle window between minimized and restored state."""
+        if self.root.state() == 'iconic' or not self.root.focus_displayof():
+            # Restore and focus
+            self.root.deiconify()
+            self.root.state('zoomed')
+            self.root.lift()
+            self.root.focus_force()
+        else:
+            # Minimize
+            self.root.iconify()
     
     def _build_lightning_aura(self):
         """Create Lightning Aura border effect frame."""
@@ -588,7 +613,8 @@ class SentinelBuddyDesktop:
         bottom_frame.pack(fill="x", padx=10, pady=(0, 10))
         
         settings_btn = tk.Button(bottom_frame, text="⚙️ Settings & Help", font=("Segoe UI", 10),
-                                bg=BG_SIDEBAR, fg=TEXT_SIDEBAR, relief="flat", anchor="w")
+                                bg=BG_SIDEBAR, fg=TEXT_SIDEBAR, relief="flat", anchor="w",
+                                command=self._open_settings)
         settings_btn.pack(fill="x")
         
         # Notification dot
@@ -614,6 +640,10 @@ class SentinelBuddyDesktop:
         for widget in self.chat_inner.winfo_children():
             widget.destroy()
         
+        # Clear system log
+        self.system_logs = []
+        self._add_system_log("New chat started")
+        
         # Add welcome message with app examples
         self._add_system_bubble(
             "⚡ Sentinel Buddy Pro\n"
@@ -625,6 +655,68 @@ class SentinelBuddyDesktop:
             "  → Open youtube.com\n\n"
             "Try saying something!"
         )
+    
+    def _open_settings(self):
+        """Open Settings window with Toplevel."""
+        settings_window = tk.Toplevel(self.root)
+        settings_window.title("Settings & Help")
+        settings_window.geometry("600x500")
+        settings_window.configure(bg=BG_SECONDARY)
+        settings_window.transient(self.root)
+        settings_window.grab_set()
+        
+        # Settings Tab
+        notebook = ttk.Notebook(settings_window)
+        notebook.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        settings_tab = tk.Frame(notebook, bg=BG_SECONDARY)
+        help_tab = tk.Frame(notebook, bg=BG_SECONDARY)
+        
+        notebook.add(settings_tab, text="Settings")
+        notebook.add(help_tab, text="Help")
+        
+        # Settings Content
+        tk.Label(settings_tab, text="AI Personality", bg=BG_SECONDARY, fg=TEXT_PRIMARY, 
+                font=("Segoe UI", 12, "bold")).pack(pady=(20, 10))
+        
+        personality_var = tk.StringVar(value="Pro Mode")
+        personalities = ["Pro Mode", "Rap God Mode", "Creative Mode"]
+        
+        for p in personalities:
+            tk.Radiobutton(settings_tab, text=p, variable=personality_var, value=p,
+                          bg=BG_SECONDARY, fg=TEXT_PRIMARY, selectcolor=BG_INPUT,
+                          font=("Segoe UI", 10)).pack(anchor="w", padx=20, pady=5)
+        
+        tk.Label(settings_tab, text="Theme", bg=BG_SECONDARY, fg=TEXT_PRIMARY,
+                font=("Segoe UI", 12, "bold")).pack(pady=(20, 10))
+        
+        theme_var = tk.StringVar(value="Dark Mode")
+        themes = ["Dark Mode", "Light Mode"]
+        
+        for t in themes:
+            tk.Radiobutton(settings_tab, text=t, variable=theme_var, value=t,
+                          bg=BG_SECONDARY, fg=TEXT_PRIMARY, selectcolor=BG_INPUT,
+                          font=("Segoe UI", 10)).pack(anchor="w", padx=20, pady=5)
+        
+        # Help Content
+        tk.Label(help_tab, text="Available Commands", bg=BG_SECONDARY, fg=TEXT_PRIMARY,
+                font=("Segoe UI", 12, "bold")).pack(pady=(20, 10))
+        
+        commands = [
+            "Open [website] - Opens website in browser",
+            "Open [app] - Launches application",
+            "Type this: [text] - Ghost types text",
+            "Launch [app.exe] - Launches local executable",
+            "Ctrl+Space - Toggle window minimize/restore"
+        ]
+        
+        for cmd in commands:
+            tk.Label(help_tab, text=f"  → {cmd}", bg=BG_SECONDARY, fg=TEXT_SECONDARY,
+                    font=("Segoe UI", 10), anchor="w").pack(fill="x", padx=20, pady=3)
+        
+        # Close button
+        tk.Button(settings_window, text="Close", bg=ACCENT_COLOR, fg="white",
+                 font=("Segoe UI", 10), command=settings_window.destroy).pack(pady=10)
     
     def _on_chat_select(self, event):
         """Handle chat selection from history."""
@@ -809,6 +901,9 @@ class SentinelBuddyDesktop:
         # Store bubble references for auto-scroll
         self.bubble_count = 0
         
+        # Store thinking animation reference
+        self.thinking_bubble = None
+        
         # Welcome message (will be updated after auto-connect)
         self._add_system_bubble(
             "\ud83e\udd16 Sentinel Buddy Pro starting...\n"
@@ -904,6 +999,47 @@ class SentinelBuddyDesktop:
     def _add_automation_log(self, message: str):
         """Add automation log as special system message (centered, small, italicized)."""
         self._render_bubble_frame(f"⚡ {message}", "automation")
+    
+    def _show_thinking_animation(self):
+        """Show animated thinking bubble while AI is responding."""
+        if self.thinking_bubble:
+            return  # Already showing
+        
+        bubble_frame = tk.Frame(self.chat_inner, bg=BG_CHAT)
+        bubble_frame.pack(fill="x", padx=10, pady=8)
+        
+        inner = tk.Frame(bubble_frame, bg="#2a2a2a", relief="solid", bd=0, 
+                       highlightbackground="#404040", highlightthickness=1)
+        inner.pack(side="left", anchor="w")
+        
+        self.thinking_label = tk.Label(inner, text="Sentinel is thinking", bg="#2a2a2a", fg="#FFFFFF", 
+                                      font=("Segoe UI", 10), padx=16, pady=12)
+        self.thinking_label.pack(anchor="w")
+        
+        self.thinking_bubble = bubble_frame
+        self._animate_thinking_dots()
+        self._auto_scroll()
+    
+    def _hide_thinking_animation(self):
+        """Hide the thinking animation bubble."""
+        if self.thinking_bubble:
+            self.thinking_bubble.destroy()
+            self.thinking_bubble = None
+            self.thinking_label = None
+    
+    def _animate_thinking_dots(self):
+        """Animate the thinking dots."""
+        if not self.thinking_bubble:
+            return
+        
+        dots = ["", ".", "..", "..."]
+        for i, dot in enumerate(dots):
+            if self.thinking_label:
+                self.thinking_label.configure(text=f"Sentinel is thinking{dot}")
+                self.root.after(500, lambda: self._animate_thinking_dots() if i == 0 else None)
+                break
+            else:
+                return
     
     def _render_bubble_frame(self, text: str, sender_type: str):
         bubble_frame = tk.Frame(self.chat_inner, bg=BG_CHAT)
@@ -1001,6 +1137,7 @@ class SentinelBuddyDesktop:
         # Run AI call in background thread (keeps UI responsive)
         self.is_thinking = True
         self._start_lightning_aura()
+        self._show_thinking_animation()
         self._add_system_log("[SYSTEM] AI is thinking...")
         threading.Thread(target=self._call_ai, args=(raw_text,), daemon=True).start()
     
@@ -1060,6 +1197,9 @@ class SentinelBuddyDesktop:
             # Display AI response
             ai_reply = result.get("content", "")
             intent = result.get("intent", {})
+            
+            # Hide thinking animation
+            self.root.after(0, self._hide_thinking_animation)
             
             # Update UI on main thread
             self.root.after(0, self._add_ai_bubble, ai_reply)
