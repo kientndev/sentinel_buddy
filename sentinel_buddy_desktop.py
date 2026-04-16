@@ -255,23 +255,27 @@ class AutomationTools:
     def open_website(site: str, callback=None) -> bool:
         """Open a website with smart mapping and auto-completion."""
         try:
+            # Sanitize input: remove quotes and spaces
+            site = site.strip().strip("'").strip('"')
+            
             # Check web mapping first
             site_lower = site.lower()
             if site_lower in AutomationTools.WEB_MAPPING:
                 url = AutomationTools.WEB_MAPPING[site_lower]
-                if callback:
-                    callback(f"[ACTION] Mapping '{site}' to URL: {url}")
             else:
                 # Smart web logic: assume .com if not mapped
                 if not site.startswith("http"):
                     if "." not in site:
-                        url = f"https://{site}.com"
+                        url = f"https://{site.lower()}.com"
                     else:
                         url = f"https://{site}" if not site.startswith("http") else site
                 else:
                     url = site
-                if callback:
-                    callback(f"[ACTION] Opening: {url}")
+            
+            # Debug log
+            print(f"[DEBUG] Opening URL: {url}")
+            if callback:
+                callback(f"[SYSTEM] Opening: {url}")
             
             webbrowser.open(url)
             return True
@@ -596,6 +600,9 @@ class SentinelBuddyDesktop:
         self.chat_history_data = {}  # {title: [messages]}
         self.current_chat_title = None
         self.current_messages = []   # Current conversation messages
+        
+        # Store canvas width for consistent bubble sizing
+        self.stored_canvas_width = None
     
     def _new_chat(self):
         """Start a new chat conversation."""
@@ -902,9 +909,12 @@ class SentinelBuddyDesktop:
         bubble_frame = tk.Frame(self.chat_inner, bg=BG_CHAT)
         bubble_frame.pack(fill="x", padx=10, pady=8)
         
-        # Calculate max width (60% of canvas)
-        canvas_width = self.chat_canvas.winfo_width()
-        max_bubble_width = int(canvas_width * 0.6) if canvas_width > 1 else 400
+        # Use screen width minus sidebar for consistent full-width sizing
+        if self.stored_canvas_width is None:
+            screen_width = self.root.winfo_screenwidth()
+            self.stored_canvas_width = screen_width - SIDEBAR_EXPANDED - 60
+        
+        max_bubble_width = self.stored_canvas_width
         
         if sender_type == "user":
             # User Bubbles - Right aligned, bright purple border
@@ -912,7 +922,7 @@ class SentinelBuddyDesktop:
                            highlightbackground="#00D4FF", highlightthickness=2)
             inner.pack(side="right", anchor="e")
             lbl = tk.Label(inner, text=text, bg=BUBBLE_USER, fg="#FFFFFF", 
-                          font=("Segoe UI", 11), wraplength=max_bubble_width, justify="right", padx=12, pady=8)
+                          font=("Segoe UI", 11), wraplength=max_bubble_width, justify="right", padx=12, pady=8, anchor="e")
             lbl.pack()
         elif sender_type == "ai":
             # AI Bubbles - Left aligned, dark grey with rounded corners
@@ -920,7 +930,7 @@ class SentinelBuddyDesktop:
                            highlightbackground="#404040", highlightthickness=1)
             inner.pack(side="left", anchor="w")
             lbl = tk.Label(inner, text=text, bg="#2a2a2a", fg="#FFFFFF", 
-                          font=("Segoe UI", 11), wraplength=max_bubble_width, justify="left", padx=16, pady=12)
+                          font=("Segoe UI", 11), wraplength=max_bubble_width, justify="left", padx=16, pady=12, anchor="w")
             lbl.pack()
         elif sender_type == "automation":
             inner = tk.Frame(bubble_frame, bg=BUBBLE_SYSTEM, relief="flat", bd=0)
