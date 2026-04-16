@@ -32,6 +32,7 @@ import webbrowser
 import subprocess
 import json
 import os
+from pathlib import Path
 from datetime import datetime
 import time
 import pyautogui
@@ -84,10 +85,20 @@ SYSTEM_COMMANDS = {
     },
 }
 
-# Load API key from .env file (with error handling)
+# Load API key from .env file (with path-aware loading)
 try:
-    load_dotenv()
-    DEFAULT_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
+    # This finds the actual folder where your script lives
+    script_dir = Path(__file__).parent.absolute()
+    env_path = script_dir / ".env"
+    
+    # Load the specific path
+    load_dotenv(dotenv_path=env_path)
+    
+    api_key = os.getenv("GROQ_API_KEY")
+    if api_key:
+        DEFAULT_API_KEY = api_key.strip()
+    else:
+        DEFAULT_API_KEY = ""
 except Exception:
     DEFAULT_API_KEY = ""
 
