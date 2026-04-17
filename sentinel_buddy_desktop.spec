@@ -5,7 +5,7 @@ a = Analysis(
     ['sentinel_buddy_desktop.py'],
     pathex=[],
     binaries=[],
-    datas=[('.env', '.'), ('assets', 'assets')],
+    datas=[('.env', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

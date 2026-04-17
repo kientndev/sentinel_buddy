@@ -482,6 +482,9 @@ class AutomationTools:
             if callback:
                 callback(f"[SYSTEM] Opening: {url}")
             
+            # Print debug statement before execution
+            print(f"[LAUNCHING] Website: {url}")
+            
             webbrowser.open(url)
             return True
         except Exception as e:
@@ -519,6 +522,9 @@ class AutomationTools:
                     if callback:
                         callback(f"[ACTION] Launching: {app_path}")
                 
+                # Print debug statement before execution
+                print(f"[LAUNCHING] Application: {app_path}")
+                
                 # Use os.startfile for Windows (recommended)
                 os.startfile(app_path)
                 return True
@@ -529,12 +535,19 @@ class AutomationTools:
                 exe_path = AutomationTools.APP_MAPPING[app_lower]
                 if callback:
                     callback(f"[ACTION] Launching: {app_name}")
+                
+                # Print debug statement before execution
+                print(f"[LAUNCHING] Application: {exe_path}")
+                
                 os.startfile(exe_path)
                 return True
             
             # Try to launch directly with quote protection
             if not app_name.endswith('.exe'):
                 app_name += '.exe'
+            
+            # Print debug statement before execution
+            print(f"[LAUNCHING] Application: {app_name}")
             
             # Use os.startfile for direct launch
             os.startfile(app_name)
@@ -572,6 +585,18 @@ class AutomationTools:
         
         # Run in background thread
         threading.Thread(target=execute_chain, daemon=True).start()
+    
+    @staticmethod
+    def quick_search(query: str):
+        """Quick Google search for fast response (110 WPM input speed)."""
+        search_url = f"https://www.google.com/search?q={urllib.parse.quote(query)}"
+        # Play click sound effect
+        try:
+            import winsound
+            winsound.Beep(1000, 50)  # 1000Hz frequency, 50ms duration
+        except Exception:
+            pass  # Fallback silently if winsound is not available
+        webbrowser.open(search_url)
     
     @staticmethod
     def execute_intent(intent: dict, callback=None) -> str:
@@ -1482,6 +1507,20 @@ class SentinelBuddyDesktop:
         
         # System Executor check FIRST
         lower_text = raw_text.lower().strip()
+        
+        # Check for quick search triggers (google, search, find) for fast 110 WPM response
+        if any(trigger in lower_text for trigger in ["google", "search", "find"]):
+            # Determine which trigger was used
+            for trigger in ["google", "search", "find"]:
+                if trigger in lower_text:
+                    search_query = lower_text.split(trigger)[-1].strip()
+                    if search_query:
+                        # Show bright cyan pulse message
+                        self._add_system_bubble(f"🎯 TARGET ACQUIRED: SEARCHING THE WEB...")
+                        self._add_system_log(f"[SYSTEM] Quick search: {search_query}")
+                        # Execute search
+                        AutomationTools.quick_search(search_query)
+                        return
         
         # Check for ghost typing command
         if "type" in lower_text:
