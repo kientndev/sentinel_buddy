@@ -41,6 +41,7 @@ from PIL import Image, ImageDraw
 import keyboard
 from dotenv import load_dotenv
 import difflib
+import urllib.parse
 
 # Configuration - Full-Screen Pro Dashboard
 APP_TITLE = "Sentinel Buddy Pro"
@@ -176,15 +177,11 @@ Keep responses concise and actionable. Use markdown sparingly."""
                 }
             }
         
-        # Check for search intent ("search for...", "look up...", "what is...")
-        if any(trigger in text_lower for trigger in ["search for", "look up", "what is", "who is", "where is", "how to"]):
-            # Extract search query
-            for trigger in ["search for", "look up", "what is", "who is", "where is", "how to"]:
-                if trigger in text_lower:
-                    query = text_lower.split(trigger)[1].strip()
-                    break
-            else:
-                query = text_lower
+        # Check for search intent ("search for...", "look up...", "what is...", "find...", "google...")
+        if any(trigger in text_lower for trigger in ["search for", "look up", "what is", "who is", "where is", "how to", "find", "google"]):
+            # Strip the trigger words for clean query extraction
+            clean_query = text_lower.replace('search for', '').replace('look up', '').replace('what is', '').replace('who is', '').replace('where is', '').replace('how to', '').replace('find', '').replace('google', '').strip()
+            query = clean_query if clean_query else text_lower
             
             # Check for lyrics queries to prioritize high-authority sites
             if "lyrics" in text_lower:
@@ -599,16 +596,19 @@ class AutomationTools:
             safe_search = params.get("safe_search", True)
             priority_site = params.get("priority_site")
             
+            # URL-encode the query
+            encoded_query = urllib.parse.quote(query)
+            
             # Build Google search URL with SafeSearch
-            search_url = f"https://www.google.com/search?q={query}"
+            search_url = f"https://www.google.com/search?q={encoded_query}"
             if safe_search:
                 search_url += "&safe=active"
             
             # If priority site specified, try to use it
             if priority_site == "genius" and "genius" in AutomationTools.WEB_MAPPING:
-                search_url = f"{AutomationTools.WEB_MAPPING['genius']}/search?q={query}"
+                search_url = f"{AutomationTools.WEB_MAPPING['genius']}/search?q={encoded_query}"
             elif priority_site == "azlyrics" and "azlyrics" in AutomationTools.WEB_MAPPING:
-                search_url = f"{AutomationTools.WEB_MAPPING['azlyrics']}/search?q={query}"
+                search_url = f"{AutomationTools.WEB_MAPPING['azlyrics']}/search?q={encoded_query}"
             
             if callback:
                 callback(f"[SYSTEM] Searching: {query}")
