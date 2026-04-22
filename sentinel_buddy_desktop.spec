@@ -5,7 +5,7 @@ a = Analysis(
     ['sentinel_buddy_desktop.py'],
     pathex=[],
     binaries=[],
-    datas=[('.env', '.')],
+    datas=[('.env', '.'), ('assets/icon2.png', 'assets')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -35,4 +35,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon='assets/icon',
 )

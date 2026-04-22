@@ -284,6 +284,7 @@ class AutomationTools:
     """Handles all system automation tasks."""
     
     # Natural Language App Mapping (no .exe needed)
+    # For full paths, use double backslashes: "C:\\Program Files\\Spotify\\Spotify.exe"
     APP_MAPPING = {
         "chrome": "chrome",
         "notepad": "notepad",
@@ -294,14 +295,16 @@ class AutomationTools:
         "cmd": "cmd",
         "powershell": "powershell",
         "vscode": "code",
-        "spotify": "spotify",
-        "discord": "discord",
+        "spotify": "spotify",  # Or use full path: "C:\\Users\\YourName\\AppData\\Roaming\\Spotify\\Spotify.exe"
+        "discord": "discord",  # Or use full path: "C:\\Users\\YourName\\AppData\\Local\\Discord\\Update.exe"
         "slack": "slack",
         "teams": "ms-teams",
         "word": "winword",
         "excel": "excel",
         "powerpoint": "powerpnt",
         "outlook": "outlook",
+        # Example of full path format:
+        # "zalo": "C:\\Program Files\\Zalo\\Zalo.exe",
     }
     
     # Web Mapping Dictionary for common sites
@@ -508,8 +511,8 @@ class AutomationTools:
             return False
     
     @staticmethod
-    def launch_app(app_name: str, callback=None) -> bool:
-        """Launch an application using dynamic system scanner with os.startfile."""
+    def launch_application(app_name: str, callback=None) -> bool:
+        """Launch an application using dynamic system scanner with subprocess.Popen to prevent blocking."""
         try:
             # Try dynamic app search first
             app_path = AutomationTools.find_app_path(app_name, callback)
@@ -522,11 +525,12 @@ class AutomationTools:
                     if callback:
                         callback(f"[ACTION] Launching: {app_path}")
                 
-                # Print debug statement before execution
-                print(f"[LAUNCHING] Application: {app_path}")
-                
-                # Use os.startfile for Windows (recommended)
-                os.startfile(app_path)
+                # Use abspath to ensure the .exe sees the real drive path
+                absolute_path = os.path.abspath(app_path)
+                print(f"[LAUNCHING] Application: {absolute_path}")
+                # Use subprocess.Popen with shell=True to prevent waiting
+                subprocess.Popen(absolute_path, shell=True)
+                print(f"SUCCESS: Launched {absolute_path}")
                 return True
             
             # Fallback to app mapping
@@ -536,26 +540,29 @@ class AutomationTools:
                 if callback:
                     callback(f"[ACTION] Launching: {app_name}")
                 
-                # Print debug statement before execution
-                print(f"[LAUNCHING] Application: {exe_path}")
-                
-                os.startfile(exe_path)
+                # Use abspath to ensure the .exe sees the real drive path
+                absolute_path = os.path.abspath(exe_path)
+                print(f"[LAUNCHING] Application: {absolute_path}")
+                # Use subprocess.Popen with shell=True to prevent waiting
+                subprocess.Popen(absolute_path, shell=True)
+                print(f"SUCCESS: Launched {absolute_path}")
                 return True
             
             # Try to launch directly with quote protection
             if not app_name.endswith('.exe'):
                 app_name += '.exe'
             
-            # Print debug statement before execution
-            print(f"[LAUNCHING] Application: {app_name}")
-            
-            # Use os.startfile for direct launch
-            os.startfile(app_name)
+            # Use abspath to ensure the .exe sees the real drive path
+            absolute_path = os.path.abspath(app_name)
+            print(f"[LAUNCHING] Application: {absolute_path}")
+            # Use subprocess.Popen with shell=True to prevent waiting
+            subprocess.Popen(absolute_path, shell=True)
+            print(f"SUCCESS: Launched {absolute_path}")
             if callback:
                 callback(f"[ACTION] Launching: {app_name}")
             return True
         except Exception as e:
-            error_msg = f"Failed to launch {app_name}: {str(e)}"
+            error_msg = f"ERROR: Could not launch {app_name}. {str(e)}"
             print(error_msg)
             if callback:
                 callback(f"[ERROR] {error_msg}")
@@ -659,8 +666,10 @@ class AutomationTools:
         
         elif action_type == "app_launch":
             app = params.get("app", "")
-            if AutomationTools.launch_application(app, callback):
-                result = f"🚀 Launched: {app}"
+            # Wrap in background thread to prevent blocking main Tkinter loop
+            # Don't pass callback to avoid UI thread-safety issues
+            threading.Thread(target=AutomationTools.launch_application, args=(app, None), daemon=True).start()
+            result = f"🚀 Launched: {app}"
         
         elif action_type == "automation_chain":
             actions = params.get("actions", [])
@@ -719,6 +728,15 @@ class SentinelBuddyDesktop:
         self.root.title(APP_TITLE)
         self.root.state('zoomed')  # Full-screen mode
         self.root.configure(bg=BG_PRIMARY)
+        
+        # Set window icon
+        icon_path = Path(__file__).parent / "assets" / "icon2.png"
+        try:
+            if icon_path.exists():
+                self.root.iconphoto(False, tk.PhotoImage(file=str(icon_path)))
+        except Exception as e:
+            # Icon not found or error loading, continue without icon
+            pass
     
     def _setup_global_hotkey(self):
         """Setup global hotkey (Ctrl + Space) for toggle minimize/restore."""
@@ -773,10 +791,17 @@ class SentinelBuddyDesktop:
     
     def _setup_system_tray(self):
         """Setup system tray icon with menu."""
-        # Create a simple icon for system tray
-        image = Image.new('RGB', (64, 64), color=(124, 107, 255))
-        draw = ImageDraw.Draw(image)
-        draw.text((20, 20), "S", fill=(255, 255, 255))
+        # Load icon from assets folder
+        icon_path = Path(__file__).parent / "assets" / "icon2.png"
+        try:
+            image = Image.open(icon_path)
+            # Resize to 64x64 for system tray
+            image = image.resize((64, 64), Image.Resampling.LANCZOS)
+        except Exception as e:
+            # Fallback to programmatic icon if image not found
+            image = Image.new('RGB', (64, 64), color=(124, 107, 255))
+            draw = ImageDraw.Draw(image)
+            draw.text((20, 20), "S", fill=(255, 255, 255))
         
         menu = pystray.Menu(
             pystray.MenuItem("Show", self._show_window),
