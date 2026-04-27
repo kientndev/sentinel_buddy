@@ -32,6 +32,7 @@ import webbrowser
 import subprocess
 import json
 import os
+import sys
 from pathlib import Path
 from datetime import datetime
 import time
@@ -42,6 +43,18 @@ import keyboard
 from dotenv import load_dotenv
 import difflib
 import urllib.parse
+from automation_engine import (
+    TaskRunner,
+    create_web_navigate_task,
+    create_web_click_task,
+    create_web_type_task,
+    create_web_scrape_task,
+    create_os_mouse_move_task,
+    create_os_mouse_click_task,
+    create_os_type_task,
+    create_os_hotkey_task,
+    create_delay_task
+)
 
 # Configuration - Full-Screen Pro Dashboard
 APP_TITLE = "Sentinel Buddy Pro"
@@ -711,6 +724,10 @@ class SentinelBuddyDesktop:
         # Initialize Brain (AI)
         self.brain = Brain(self.api_key)
         
+        # Initialize Automation Engine
+        self.task_runner = TaskRunner(headless_browser=False)
+        self.task_runner.start()
+        
         # Setup window (full-screen)
         self._setup_window()
         
@@ -730,7 +747,15 @@ class SentinelBuddyDesktop:
         self.root.configure(bg=BG_PRIMARY)
         
         # Set window icon
-        icon_path = Path(__file__).parent / "assets" / "icon2.png"
+        # Handle both development and PyInstaller built environments
+        if getattr(sys, 'frozen', False):
+            # Running from PyInstaller build
+            base_path = sys._MEIPASS
+        else:
+            # Running from source
+            base_path = Path(__file__).parent
+        
+        icon_path = Path(base_path) / "assets" / "icon2.png"
         try:
             if icon_path.exists():
                 self.root.iconphoto(False, tk.PhotoImage(file=str(icon_path)))
@@ -792,7 +817,15 @@ class SentinelBuddyDesktop:
     def _setup_system_tray(self):
         """Setup system tray icon with menu."""
         # Load icon from assets folder
-        icon_path = Path(__file__).parent / "assets" / "icon2.png"
+        # Handle both development and PyInstaller built environments
+        if getattr(sys, 'frozen', False):
+            # Running from PyInstaller build
+            base_path = sys._MEIPASS
+        else:
+            # Running from source
+            base_path = Path(__file__).parent
+        
+        icon_path = Path(base_path) / "assets" / "icon2.png"
         try:
             image = Image.open(icon_path)
             # Resize to 64x64 for system tray
@@ -843,9 +876,87 @@ class SentinelBuddyDesktop:
     
     def _quit_app(self):
         """Quit the application."""
+        # Stop automation engine
+        self.task_runner.stop()
+        self.task_runner.web_agent.close()
+        
         self.icon.stop()
         self.root.quit()
         self.root.destroy()
+    
+    # ==================== AUTOMATION METHODS ====================
+    
+    def execute_automation_chain(self, tasks: list, callback=None):
+        """Execute a chain of automation tasks in a separate thread."""
+        def _run_chain():
+            try:
+                def on_task_complete(task):
+                    self._add_system_log(f"Task completed: {task.action_type.value}")
+                    if callback:
+                        self.root.after(0, lambda: callback(task.result))
+                
+                def on_error(error):
+                    self._add_system_log(f"Automation error: {str(error)}")
+                    if callback:
+                        self.root.after(0, lambda: callback(None, error))
+                
+                self.task_runner.on_task_complete = on_task_complete
+                self.task_runner.on_error = on_error
+                
+                self.task_runner.add_chain(tasks)
+                
+            except Exception as e:
+                self._add_system_log(f"Chain execution failed: {str(e)}")
+                if callback:
+                    self.root.after(0, lambda: callback(None, e))
+        
+        thread = threading.Thread(target=_run_chain, daemon=True)
+        thread.start()
+    
+    def automation_navigate(self, url: str, callback=None):
+        """Navigate to a URL using web automation."""
+        task = create_web_navigate_task(url)
+        self.execute_automation_chain([task], callback)
+    
+    def automation_click(self, selector: str, callback=None):
+        """Click an element using web automation."""
+        task = create_web_click_task(selector)
+        self.execute_automation_chain([task], callback)
+    
+    def automation_type(self, selector: str, text: str, callback=None):
+        """Type text into an element using web automation."""
+        task = create_web_type_task(selector, text)
+        self.execute_automation_chain([task], callback)
+    
+    def automation_scrape(self, selector: str = None, callback=None):
+        """Scrape text from page using web automation."""
+        task = create_web_scrape_task(selector)
+        self.execute_automation_chain([task], callback)
+    
+    def automation_mouse_move(self, x: int, y: int, duration: float = 0.5, callback=None):
+        """Move mouse using OS automation."""
+        task = create_os_mouse_move_task(x, y, duration)
+        self.execute_automation_chain([task], callback)
+    
+    def automation_mouse_click(self, button: str = 'left', clicks: int = 1, callback=None):
+        """Click mouse using OS automation."""
+        task = create_os_mouse_click_task(button, clicks)
+        self.execute_automation_chain([task], callback)
+    
+    def automation_type_os(self, text: str, human_like: bool = True, callback=None):
+        """Type text using OS automation."""
+        task = create_os_type_task(text, human_like)
+        self.execute_automation_chain([task], callback)
+    
+    def automation_hotkey(self, *keys, callback=None):
+        """Press hotkey using OS automation."""
+        task = create_os_hotkey_task(*keys)
+        self.execute_automation_chain([task], callback)
+    
+    def automation_delay(self, milliseconds: int, callback=None):
+        """Add delay in automation chain."""
+        task = create_delay_task(milliseconds)
+        self.execute_automation_chain([task], callback)
     
     def _build_ui(self):
         """Build all UI sections: Sidebar + Centered Chat."""
